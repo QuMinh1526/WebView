@@ -508,7 +508,7 @@ private fun ParameterControl(
             Column(modifier = Modifier.weight(1f)) {
                 Text(title, color = TextPrimary, fontWeight = FontWeight.Medium)
                 Text(
-                    "${formatValue(key, actual)} · $position / 100",
+                    "${formatVoiceFxValue(key, actual)} · $position / 100",
                     color = TextSecondary,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -778,7 +778,7 @@ private fun defaultPosition(key: String): Int = when (key) {
     else -> 50
 }
 
-private fun formatValue(key: String, value: Double): String {
+internal fun formatVoiceFxValue(key: String, value: Double): String {
     val (format, unit) = when (key) {
         "outputGain" -> "%.2f" to "×"
         "noiseGateDb", "eqLowDb", "eq300Db", "eq1kDb", "eq35kDb", "eqHighDb" ->
@@ -791,5 +791,5 @@ private fun formatValue(key: String, value: Double): String {
         "bitDepth" -> "%.0f" to "bit"
         else -> "%.0f" to "%"
     }
-    return String.format(Locale.ROOT, "$format $unit", value)
+    return String.format(Locale.ROOT, format, value) + " " + unit
 }

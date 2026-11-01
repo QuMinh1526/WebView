@@ -6,6 +6,14 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +33,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MoreVert
@@ -43,6 +53,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -81,6 +92,7 @@ import com.example.webview.ui.theme.SurfaceRaised
 import com.example.webview.ui.theme.TextPrimary
 import com.example.webview.ui.theme.TextSecondary
 import com.example.webview.ui.theme.UiSpacing
+import com.example.webview.ui.theme.rememberMotionEnabled
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -97,6 +109,8 @@ fun BrowserScreen(
     val activity = context.findActivity()
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
+    var browserControlsVisible by rememberSaveable { mutableStateOf(true) }
+    val motionEnabled = rememberMotionEnabled()
     val settingsRepository = remember(context) { SettingsRepository(context.applicationContext) }
     var pendingRuntimePermission by remember { mutableStateOf<Pair<SitePermissionPrompt, Boolean>?>(null) }
     val webViews = remember(activity, browserViewModel) {
@@ -196,6 +210,24 @@ fun BrowserScreen(
             .background(Canvas)
             .windowInsetsPadding(WindowInsets.safeDrawing),
     ) {
+        AnimatedVisibility(
+            visible = browserControlsVisible,
+            enter = if (motionEnabled) {
+                fadeIn(animationSpec = tween(150)) +
+                    expandVertically(
+                        animationSpec = tween(150),
+                        expandFrom = Alignment.Top,
+                    )
+            } else EnterTransition.None,
+            exit = if (motionEnabled) {
+                fadeOut(animationSpec = tween(150)) +
+                    shrinkVertically(
+                        animationSpec = tween(150),
+                        shrinkTowards = Alignment.Top,
+                    )
+            } else ExitTransition.None,
+        ) {
+            Column {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -261,6 +293,16 @@ fun BrowserScreen(
                 Icon(
                     imageVector = Icons.Default.MoreVert,
                     contentDescription = "Browser menu",
+                    tint = TextPrimary,
+                )
+            }
+            IconButton(
+                onClick = { browserControlsVisible = false },
+                modifier = Modifier.size(UiSpacing.TouchTarget),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowUp,
+                    contentDescription = "Hide browser toolbar",
                     tint = TextPrimary,
                 )
             }
@@ -372,6 +414,8 @@ fun BrowserScreen(
                 onCheckedChange = browserViewModel::setDesktopMode,
             )
         }
+            }
+        }
 
         Box(
             modifier = Modifier
@@ -445,6 +489,27 @@ fun BrowserScreen(
             tabCount = state.tabs.size,
         )
     }
+
+        if (!browserControlsVisible) {
+            AcrylicPanel(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(end = UiSpacing.Medium, top = UiSpacing.Small)
+                    .zIndex(1f),
+                radius = UiSpacing.CardCorner,
+            ) {
+                IconButton(
+                    onClick = { browserControlsVisible = true },
+                    modifier = Modifier.size(UiSpacing.TouchTarget),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = "Show browser toolbar",
+                        tint = TextPrimary,
+                    )
+                }
+            }
+        }
 
     BrowserDialogs(
         state = state,

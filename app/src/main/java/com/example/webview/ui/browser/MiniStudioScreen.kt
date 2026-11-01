@@ -80,6 +80,8 @@ private enum class StudioSection(val label: String) {
 fun MiniStudioScreen(
     settingsRepository: SettingsRepository,
     currentOrigin: String?,
+    microphonePermissionGranted: Boolean,
+    onRequestMicrophonePermission: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -175,6 +177,24 @@ fun MiniStudioScreen(
                 color = TextSecondary,
                 style = MaterialTheme.typography.bodySmall,
             )
+            Spacer(Modifier.height(UiSpacing.Small))
+            Text(
+                if (microphonePermissionGranted) {
+                    "Android microphone permission: allowed"
+                } else {
+                    "Android microphone permission: not granted"
+                },
+                color = if (microphonePermissionGranted) TextPrimary else TextSecondary,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (!microphonePermissionGranted) {
+                ActionButton(
+                    "Allow app microphone permission",
+                    onClick = onRequestMicrophonePermission,
+                    primary = false,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
         Spacer(Modifier.height(UiSpacing.Small))
 

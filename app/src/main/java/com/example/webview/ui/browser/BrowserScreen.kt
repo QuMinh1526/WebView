@@ -131,6 +131,12 @@ fun BrowserScreen(
     }
     val voiceFxActive = voiceFxSettings.enabled &&
         currentOrigin != null && currentOrigin in voiceFxSettings.allowedOrigins
+    var microphonePermissionGranted by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED,
+        )
+    }
     var pendingRuntimePermission by remember { mutableStateOf<Pair<SitePermissionPrompt, Boolean>?>(null) }
     val webViews = remember(activity, browserViewModel) {
         BrowserWebViewPool(
@@ -173,6 +179,18 @@ fun BrowserScreen(
                 runtimePermissionsGranted = accepted,
             )
         }
+    }
+    val microphonePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        microphonePermissionGranted = granted
+        browserViewModel.showMessage(
+            if (granted) {
+                "Android microphone permission granted. A website must still request microphone access."
+            } else {
+                "Microphone permission was not granted."
+            },
+        )
     }
 
     DisposableEffect(webViews) {
@@ -617,6 +635,10 @@ fun BrowserScreen(
             MiniStudioScreen(
                 settingsRepository = settingsRepository,
                 currentOrigin = currentOrigin,
+                microphonePermissionGranted = microphonePermissionGranted,
+                onRequestMicrophonePermission = {
+                    microphonePermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                },
                 onDismiss = { browserViewModel.showMiniStudio(false) },
             )
         }

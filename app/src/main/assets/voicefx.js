@@ -2,6 +2,7 @@
   "use strict";
 
   const MAPPING = __VOICEFX_MAPPING__;
+  const mapScale = __VOICEFX_SCALE__;
   const INITIAL = __VOICEFX_INITIAL__;
   const BLOCKS = [
     "noiseGate", "highPass", "lowPass", "eq", "compressor", "pitch",
@@ -40,15 +41,6 @@
   let hudTimer = 0;
 
   const clamp = (value, min, max) => Math.min(max, Math.max(min, Number(value) || 0));
-  function mapScale(position, extended, range) {
-    const limit = extended ? 1000 : 100;
-    const value = clamp(Math.round(position), 0, limit);
-    const normalPosition = Math.min(value, 100) / 100;
-    const normalValue = range[0] + (range[1] - range[0]) * normalPosition;
-    if (!extended || value <= 100) return normalValue;
-    const fraction = (value - 100) / 900;
-    return range[1] + (range[2] - range[1]) * Math.pow(fraction, range[3]);
-  }
   const value = name => mapScale(state.parameters[name] ?? 0, false, MAPPING[name]);
   const blockOn = name => state.enabled && state.blocks.has(name);
 

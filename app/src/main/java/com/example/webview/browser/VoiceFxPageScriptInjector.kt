@@ -27,6 +27,8 @@ class VoiceFxPageScriptInjector(
         .bufferedReader().use { it.readText() }
     private val scriptTemplate = appContext.assets.open("voicefx.js")
         .bufferedReader().use { it.readText() }
+    private val scaleFunction = appContext.assets.open("voicefx-scale.js")
+        .bufferedReader().use { it.readText() }
     private val installed = WeakHashMap<WebView, InstalledScript>()
     private val allowedOriginByView = WeakHashMap<WebView, Set<String>>()
     private val settingsByView = WeakHashMap<WebView, VoiceFxSettings>()
@@ -62,6 +64,7 @@ class VoiceFxPageScriptInjector(
             .put("blocks", org.json.JSONArray(settings.enabledBlocks.toList()))
         val script = scriptTemplate
             .replace("__VOICEFX_MAPPING__", mappingTable)
+            .replace("__VOICEFX_SCALE__", scaleFunction)
             .replace("__VOICEFX_INITIAL__", initialConfig.toString())
         val old = installed[webView]
         if (old == null || old.origins != allowedRules) {

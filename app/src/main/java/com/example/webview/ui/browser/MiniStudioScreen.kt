@@ -180,21 +180,26 @@ fun MiniStudioScreen(
             Spacer(Modifier.height(UiSpacing.Small))
             Text(
                 if (microphonePermissionGranted) {
-                    "Android microphone permission: allowed"
+                    "Mic ready: Android permission is allowed. No audio is captured until a website requests it."
                 } else {
-                    "Android microphone permission: not granted"
+                    "Mic not ready: grant Android permission, then allow microphone access for the website."
                 },
                 color = if (microphonePermissionGranted) TextPrimary else TextSecondary,
                 style = MaterialTheme.typography.bodySmall,
             )
             if (!microphonePermissionGranted) {
                 ActionButton(
-                    "Allow app microphone permission",
+                    "Grant app microphone permission",
                     onClick = onRequestMicrophonePermission,
                     primary = false,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
+            Text(
+                "The website's own Allow prompt is still required. The app does not keep the microphone recording in the background.",
+                color = TextSecondary,
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
         Spacer(Modifier.height(UiSpacing.Small))
 

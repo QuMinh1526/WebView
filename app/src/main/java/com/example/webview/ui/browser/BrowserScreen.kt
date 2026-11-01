@@ -200,7 +200,14 @@ fun BrowserScreen(
     DisposableEffect(lifecycleOwner, webViews, state.activeTabId) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> webViews.onResume(state.activeTabId)
+                Lifecycle.Event.ON_RESUME -> {
+                    webViews.onResume(state.activeTabId)
+                    microphonePermissionGranted =
+                        ContextCompat.checkSelfPermission(
+                            context,
+                            android.Manifest.permission.RECORD_AUDIO,
+                        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                }
                 Lifecycle.Event.ON_PAUSE -> webViews.onPause()
                 else -> Unit
             }

@@ -77,8 +77,10 @@ import com.example.webview.browser.BrowserViewModel
 import com.example.webview.browser.BrowserWebViewPool
 import com.example.webview.browser.DownloadRequest
 import com.example.webview.browser.PageError
+import com.example.webview.browser.VoiceFxPageScriptInjector
 import com.example.webview.browser.SitePermissionPrompt
 import com.example.webview.data.SettingsRepository
+import com.example.webview.data.VoiceFxSettings
 import com.example.webview.ui.components.ActionButton
 import com.example.webview.ui.components.AcrylicChip
 import com.example.webview.ui.components.AcrylicPanel
@@ -112,6 +114,10 @@ fun BrowserScreen(
     var browserControlsVisible by rememberSaveable { mutableStateOf(true) }
     val motionEnabled = rememberMotionEnabled()
     val settingsRepository = remember(context) { SettingsRepository(context.applicationContext) }
+    val voiceFxSettings by settingsRepository.voiceFxSettings.collectAsState(
+        initial = VoiceFxSettings(),
+    )
+    val scriptInjector = remember(activity) { VoiceFxPageScriptInjector(activity) }
     var pendingRuntimePermission by remember { mutableStateOf<Pair<SitePermissionPrompt, Boolean>?>(null) }
     val webViews = remember(activity, browserViewModel) {
         BrowserWebViewPool(
@@ -119,6 +125,7 @@ fun BrowserScreen(
             settingsRepository = settingsRepository,
             lifecycleScope = lifecycleOwner.lifecycleScope,
             viewModel = browserViewModel,
+            scriptInjector = scriptInjector,
         )
     }
 
@@ -431,7 +438,9 @@ fun BrowserScreen(
                     AndroidView(
                         factory = { webViews.get(state.activeTab) },
                         modifier = Modifier.fillMaxSize(),
-                        update = { webView -> webViews.update(state.activeTab, webView) },
+                        update = { webView ->
+                            webViews.update(state.activeTab, webView, voiceFxSettings)
+                        },
                         onRelease = { webViews.onTabReleased(state.activeTabId) },
                     )
                 }

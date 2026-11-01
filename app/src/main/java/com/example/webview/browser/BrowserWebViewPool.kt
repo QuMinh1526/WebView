@@ -30,6 +30,7 @@ import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import android.webkit.WebSettings
 import com.example.webview.data.SettingsRepository
+import com.example.webview.data.VoiceFxSettings
 import kotlinx.coroutines.launch
 import java.io.ByteArrayInputStream
 import java.net.URI
@@ -65,6 +66,11 @@ class BrowserWebViewPool(
     }
 
     fun update(tab: BrowserTab, webView: WebView) {
+        update(tab, webView, VoiceFxSettings())
+    }
+
+    fun update(tab: BrowserTab, webView: WebView, voiceFxSettings: VoiceFxSettings) {
+        scriptInjector.configure(webView, voiceFxSettings)
         val modeChanged = desktopModes.put(tab.id, tab.desktopMode) != tab.desktopMode
         val reloadChanged = reloadGenerations.put(tab.id, tab.reloadGeneration) !=
             tab.reloadGeneration
@@ -116,6 +122,7 @@ class BrowserWebViewPool(
 
     fun onPause() {
         views.values.forEach(WebView::onPause)
+        scriptInjector.onPause()
         CookieManager.getInstance().flush()
         if (profileApiSupported) {
             ProfileStore.getInstance().getAllProfileNames().forEach { profileName ->
@@ -126,6 +133,7 @@ class BrowserWebViewPool(
 
     fun onResume(activeTabId: String) {
         views.values.forEach { if (it === views[activeTabId]) it.onResume() }
+        scriptInjector.onResume()
     }
 
     fun destroyAll() {

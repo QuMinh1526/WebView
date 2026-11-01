@@ -1,10 +1,17 @@
 package com.example.webview.browser
 
 import android.webkit.WebView
+import com.example.webview.data.VoiceFxSettings
 import java.net.URI
 
 interface PageScriptInjector {
     fun inject(webView: WebView, pageUrl: String, isMainFrame: Boolean)
+
+    fun configure(webView: WebView, settings: VoiceFxSettings) = Unit
+
+    fun onPause() = Unit
+
+    fun onResume() = Unit
 }
 
 class NoOpPageScriptInjector(

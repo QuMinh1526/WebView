@@ -11,6 +11,7 @@ data class BrowserUiState(
     val tabsVisible: Boolean = false,
     val diagnosticsVisible: Boolean = false,
     val menuVisible: Boolean = false,
+    val miniStudioVisible: Boolean = false,
     val settingsLoaded: Boolean = false,
     val pendingDownload: DownloadRequest? = null,
     val pendingExternalUrl: String? = null,

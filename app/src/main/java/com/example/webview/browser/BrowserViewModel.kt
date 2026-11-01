@@ -203,6 +203,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         _state.update { it.copy(diagnosticsVisible = visible) }
     }
 
+    fun showMiniStudio(visible: Boolean) {
+        _state.update { it.copy(miniStudioVisible = visible) }
+    }
+
     fun showMenu(visible: Boolean) {
         _state.update { it.copy(menuVisible = visible) }
     }

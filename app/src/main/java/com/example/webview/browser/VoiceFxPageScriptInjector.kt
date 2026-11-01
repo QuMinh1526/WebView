@@ -12,12 +12,16 @@ import com.example.webview.data.VoiceFxSettings
 import org.json.JSONObject
 import java.net.URI
 import java.util.WeakHashMap
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 @SuppressLint("RequiresFeature") // Every WebKit extension is guarded by its feature check.
 class VoiceFxPageScriptInjector(
     context: Context,
     private val onStats: (String) -> Unit = {},
 ) : PageScriptInjector {
+    private val _stats = MutableStateFlow<VoiceFxStats?>(null)
+    val stats = _stats.asStateFlow()
     private val appContext = context.applicationContext
     private val mappingTable = appContext.assets.open("voicefx-mapping.json")
         .bufferedReader().use { it.readText() }
@@ -60,7 +64,7 @@ class VoiceFxPageScriptInjector(
             .replace("__VOICEFX_MAPPING__", mappingTable)
             .replace("__VOICEFX_INITIAL__", initialConfig.toString())
         val old = installed[webView]
-        if (old == null || old.origins != allowedRules || old.script != script) {
+        if (old == null || old.origins != allowedRules) {
             remove(webView)
             val handler = WebViewCompat.addDocumentStartJavaScript(webView, script, allowedRules)
             WebViewCompat.addWebMessageListener(
@@ -80,9 +84,13 @@ class VoiceFxPageScriptInjector(
                             null,
                         )
                     } else {
-                        onStats(message.data.orEmpty())
+                        val payload = message.data.orEmpty()
+                        _stats.value = runCatching { VoiceFxStats.fromJson(payload) }
+                            .getOrNull()
+                        onStats(payload)
                     }
                 }
+
             }
             installed[webView] = InstalledScript(allowedRules, script, handler)
         }
@@ -106,18 +114,21 @@ class VoiceFxPageScriptInjector(
             return
         }
         val settings = settingsByView[webView] ?: return
+        val bootstrap = installed[webView]?.script ?: return
         val update = JSONObject()
             .put("enabled", settings.enabled && webView !in runtimeBypass)
             .put("hudVisible", settings.hudVisible)
             .put("parameters", parametersJson(settings))
             .put("blocks", org.json.JSONArray(settings.enabledBlocks.toList()))
         webView.evaluateJavascript(
-            "window.__voicefx&&window.__voicefx.set($update)",
+            "(function(){if(!window.__voicefx){$bootstrap};" +
+                "window.__voicefx&&window.__voicefx.set($update)})()",
             null,
         )
     }
 
     override fun onPause() {
+        _stats.value = null
         installed.keys.toList().forEach { webView ->
             webView.evaluateJavascript("window.__voicefx&&window.__voicefx.set({hudVisible:false})", null)
         }

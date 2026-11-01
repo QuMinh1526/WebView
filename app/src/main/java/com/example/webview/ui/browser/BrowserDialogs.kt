@@ -87,6 +87,10 @@ fun BrowserDialogs(
                 browserViewModel.showMenu(false)
                 browserViewModel.showSettings(true)
             },
+            onMiniStudio = {
+                browserViewModel.showMenu(false)
+                browserViewModel.showMiniStudio(true)
+            },
             onClearData = {
                 browserViewModel.showMenu(false)
                 clearConfirmation = true
@@ -181,6 +185,7 @@ private fun BrowserMenuDialog(
     onPrivateTab: () -> Unit,
     onShowTabs: () -> Unit,
     onSettings: () -> Unit,
+    onMiniStudio: () -> Unit,
     onClearData: () -> Unit,
     onDiagnostics: () -> Unit,
     onDismiss: () -> Unit,
@@ -210,6 +215,12 @@ private fun BrowserMenuDialog(
             ActionButton(
                 "Settings",
                 onSettings,
+                primary = false,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            ActionButton(
+                "Mini Studio",
+                onMiniStudio,
                 primary = false,
                 modifier = Modifier.fillMaxWidth(),
             )

@@ -80,6 +80,7 @@ import com.example.webview.browser.PageError
 import com.example.webview.browser.VoiceFxPageScriptInjector
 import com.example.webview.browser.SitePermissionPrompt
 import com.example.webview.data.SettingsRepository
+import com.example.webview.data.VoiceFxOrigin
 import com.example.webview.data.VoiceFxSettings
 import com.example.webview.ui.components.ActionButton
 import com.example.webview.ui.components.AcrylicChip
@@ -118,6 +119,18 @@ fun BrowserScreen(
         initial = VoiceFxSettings(),
     )
     val scriptInjector = remember(activity) { VoiceFxPageScriptInjector(activity) }
+    val voiceFxStats by scriptInjector.stats.collectAsState(initial = null)
+    val currentOrigin = remember(state.activeTab.url) {
+        runCatching {
+            java.net.URI(state.activeTab.url).let { uri ->
+                VoiceFxOrigin.normalize(
+                    "${uri.scheme}://${uri.host}${if (uri.port == -1) "" else ":${uri.port}"}",
+                )
+            }
+        }.getOrNull()
+    }
+    val voiceFxActive = voiceFxSettings.enabled &&
+        currentOrigin != null && currentOrigin in voiceFxSettings.allowedOrigins
     var pendingRuntimePermission by remember { mutableStateOf<Pair<SitePermissionPrompt, Boolean>?>(null) }
     val webViews = remember(activity, browserViewModel) {
         BrowserWebViewPool(
@@ -199,6 +212,9 @@ fun BrowserScreen(
         } else if (state.tabs.size > 1) {
             closeTab(state.activeTab, state.tabs, webViews, browserViewModel)
         }
+    }
+    BackHandler(enabled = state.miniStudioVisible) {
+        browserViewModel.showMiniStudio(false)
     }
 
     browserViewModel.onDownloadConfirmed = { request ->
@@ -336,6 +352,13 @@ fun BrowserScreen(
                     imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                     contentDescription = "Go to address",
                     tint = ActionBlue,
+                )
+            }
+            if (voiceFxActive) {
+                AcrylicChip(
+                    label = "FX",
+                    selected = true,
+                    onClick = { browserViewModel.showMiniStudio(true) },
                 )
             }
         }
@@ -557,6 +580,47 @@ fun BrowserScreen(
             browserViewModel.updateSettings { it.copy(biometricLock = enabled) }
         },
     )
+    if (voiceFxActive) {
+        VoiceFxFloatingHud(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = UiSpacing.Medium, vertical = UiSpacing.Large)
+                .zIndex(2f),
+            stats = voiceFxStats,
+            hudVisible = voiceFxSettings.hudVisible,
+            origin = currentOrigin.orEmpty(),
+            onOpenStudio = { browserViewModel.showMiniStudio(true) },
+            onPanic = {
+                webViews.get(state.activeTab).evaluateJavascript(
+                    "window.__voicefx&&window.__voicefx.panic()",
+                    null,
+                )
+                scope.launch {
+                    settingsRepository.updateVoiceFx { it.copy(enabled = false) }
+                }
+            },
+            onToggleHud = {
+                scope.launch {
+                    settingsRepository.updateVoiceFx {
+                        it.copy(hudVisible = !it.hudVisible)
+                    }
+                }
+            },
+        )
+    }
+    if (state.miniStudioVisible) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(3f),
+        ) {
+            MiniStudioScreen(
+                settingsRepository = settingsRepository,
+                currentOrigin = currentOrigin,
+                onDismiss = { browserViewModel.showMiniStudio(false) },
+            )
+        }
+    }
     if (appLocked) {
         Box(
             modifier = Modifier

@@ -21,6 +21,8 @@ android {
         buildConfig = true
     }
 
+    sourceSets.getByName("test").resources.srcDir("src/main/assets")
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -58,4 +60,5 @@ dependencies {
     implementation("androidx.biometric:biometric:1.4.0-alpha07")
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20250517")
 }

@@ -41,4 +41,5 @@ class VoiceFxScaleTest {
         assertEquals(1.0, VoiceFxScale.map(101, false, gain), 0.0001)
         assertEquals(1.0, VoiceFxScale.map(1001, true, gain), 0.0001)
     }
+
 }

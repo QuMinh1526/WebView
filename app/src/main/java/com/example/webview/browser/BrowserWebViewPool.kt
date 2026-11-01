@@ -5,7 +5,10 @@ import android.Manifest
 import android.app.Activity
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.Message
+import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -31,6 +34,8 @@ import androidx.webkit.WebViewFeature
 import android.webkit.WebSettings
 import com.example.webview.data.SettingsRepository
 import com.example.webview.data.VoiceFxSettings
+import org.json.JSONObject
+import org.json.JSONTokener
 import kotlinx.coroutines.launch
 import java.io.ByteArrayInputStream
 import java.net.URI
@@ -183,7 +188,116 @@ class BrowserWebViewPool(
             webViewVersion = version,
             cookiesEnabled = cookieManager(viewModel.state.value.activeTab).acceptCookie(),
             domStorageEnabled = webView?.settings?.domStorageEnabled ?: false,
+            recordAudioPermissionGranted = hasRecordAudioPermission(),
         )
+    }
+
+    fun queryMicrophoneDiagnostics(
+        tabId: String,
+        callback: (MicrophoneDiagnosticsProbe?) -> Unit,
+    ) {
+        val webView = views[tabId] ?: run {
+            callback(null)
+            return
+        }
+        val script = """
+            (async () => {
+              const secureContext = window.isSecureContext === true;
+              try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                return JSON.stringify({
+                  secureContext,
+                  audioInputCount: devices.filter(device => device.kind === "audioinput").length
+                });
+              } catch (error) {
+                return JSON.stringify({
+                  secureContext,
+                  error: error && error.name ? error.name : "UnknownError"
+                });
+              }
+            })()
+        """.trimIndent()
+        evaluateAsyncJavascript(webView, script) { result ->
+            val payload = runCatching {
+                JSONObject(result.orEmpty())
+            }.getOrNull()
+            callback(
+                payload?.let {
+                    MicrophoneDiagnosticsProbe(
+                        secureContext = it.optBoolean("secureContext"),
+                        audioInputCount = if (it.has("audioInputCount")) {
+                            it.optInt("audioInputCount")
+                        } else null,
+                        error = it.optString("error").takeIf(String::isNotBlank),
+                    )
+                },
+            )
+        }
+    }
+
+    fun testGetUserMedia(tabId: String, callback: (String) -> Unit) {
+        val webView = views[tabId] ?: run {
+            callback("WebViewUnavailable")
+            return
+        }
+        val script = """
+            (async () => {
+              try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                stream.getTracks().forEach(track => track.stop());
+                return "Success";
+              } catch (error) {
+                return error && error.name ? error.name : "UnknownError";
+              }
+            })()
+        """.trimIndent()
+        evaluateAsyncJavascript(webView, script) { result ->
+            callback(result ?: "UnknownError")
+        }
+    }
+
+    private fun evaluateAsyncJavascript(
+        webView: WebView,
+        expression: String,
+        callback: (String?) -> Unit,
+    ) {
+        val key = "__browserAsyncResult_${UUID.randomUUID().toString().replace("-", "")}"
+        webView.evaluateJavascript(
+            """
+                (() => {
+                  const key = "$key";
+                  window[key] = null;
+                  Promise.resolve($expression).then(
+                    value => { window[key] = JSON.stringify(value); },
+                    error => { window[key] = JSON.stringify({
+                      error: error && error.name ? error.name : "UnknownError"
+                    }); }
+                  );
+                  return true;
+                })()
+            """.trimIndent(),
+            null,
+        )
+        val handler = Handler(Looper.getMainLooper())
+        val startedAt = SystemClock.elapsedRealtime()
+        lateinit var poll: Runnable
+        poll = Runnable {
+            webView.evaluateJavascript("window['$key']") { encoded ->
+                val value = runCatching {
+                    JSONTokener(encoded).nextValue() as? String
+                }.getOrNull()
+                if (value != null) {
+                    webView.evaluateJavascript("delete window['$key']", null)
+                    callback(value)
+                } else if (SystemClock.elapsedRealtime() - startedAt < ASYNC_SCRIPT_TIMEOUT_MS) {
+                    handler.postDelayed(poll, ASYNC_SCRIPT_POLL_INTERVAL_MS)
+                } else {
+                    webView.evaluateJavascript("delete window['$key']", null)
+                    callback(null)
+                }
+            }
+        }
+        handler.postDelayed(poll, ASYNC_SCRIPT_POLL_INTERVAL_MS)
     }
 
     fun completeFileChooser(uris: List<Uri>) {
@@ -218,7 +332,15 @@ class BrowserWebViewPool(
         val pending = pendingPermissions.remove(promptId) ?: return
         viewModel.setPermissionPrompt(null)
         if (!allow || !runtimePermissionsGranted) {
-            if (allow) viewModel.showMessage("Android permission is required for this feature.")
+            if (allow) {
+                if (PermissionRequest.RESOURCE_AUDIO_CAPTURE in pending.resources &&
+                    !hasRecordAudioPermission()
+                ) {
+                    viewModel.showMicrophonePermissionError()
+                } else {
+                    viewModel.showMessage("Android permission is required for this feature.")
+                }
+            }
             pending.deny()
             return
         }
@@ -510,13 +632,13 @@ class BrowserWebViewPool(
                             android.content.pm.PackageManager.PERMISSION_GRANTED
                     }
                     if (alreadyAllowed && androidAllowed) {
-                        request.grant(resources.toTypedArray())
+                        grantPermissionRequest(request, resources)
                     } else {
                         pendingPermissions[prompt.id] = PendingPermission(
                             tabId = tabId,
                             origin = origin,
                             resources = resources,
-                            grantAction = { request.grant(resources.toTypedArray()) },
+                            grantAction = { grantPermissionRequest(request, resources) },
                             denyAction = request::deny,
                         )
                         viewModel.setPermissionPrompt(prompt)
@@ -662,7 +784,27 @@ class BrowserWebViewPool(
         fun deny() = denyAction()
     }
 
+    private fun grantPermissionRequest(request: PermissionRequest, resources: Set<String>) {
+        val grantedResources = resources.filter { resource ->
+            when (resource) {
+                PermissionRequest.RESOURCE_AUDIO_CAPTURE -> hasRecordAudioPermission()
+                PermissionRequest.RESOURCE_VIDEO_CAPTURE ->
+                    ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) ==
+                        android.content.pm.PackageManager.PERMISSION_GRANTED
+                else -> false
+            }
+        }
+        if (grantedResources.isEmpty()) request.deny()
+        else request.grant(grantedResources.toTypedArray())
+    }
+
+    private fun hasRecordAudioPermission(): Boolean =
+        ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+
     companion object {
+        private const val ASYNC_SCRIPT_TIMEOUT_MS = 60_000L
+        private const val ASYNC_SCRIPT_POLL_INTERVAL_MS = 100L
         const val PRIMARY_PROFILE = "Primary"
         const val PRIVATE_PROFILE = "Private"
         const val GEOLOCATION_RESOURCE = "GEOLOCATION"
@@ -674,4 +816,11 @@ data class BrowserDiagnostics(
     val webViewVersion: String,
     val cookiesEnabled: Boolean,
     val domStorageEnabled: Boolean,
+    val recordAudioPermissionGranted: Boolean,
+)
+
+data class MicrophoneDiagnosticsProbe(
+    val secureContext: Boolean,
+    val audioInputCount: Int?,
+    val error: String?,
 )

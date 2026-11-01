@@ -2,6 +2,8 @@ package com.example.webview.ui.browser
 
 import android.app.DownloadManager
 import android.content.Context
+import android.content.Intent
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -37,6 +39,8 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
@@ -76,6 +80,7 @@ import com.example.webview.browser.BrowserTab
 import com.example.webview.browser.BrowserViewModel
 import com.example.webview.browser.BrowserWebViewPool
 import com.example.webview.browser.DownloadRequest
+import com.example.webview.browser.microphoneErrorMessage
 import com.example.webview.browser.PageError
 import com.example.webview.browser.VoiceFxPageScriptInjector
 import com.example.webview.browser.SitePermissionPrompt
@@ -118,7 +123,14 @@ fun BrowserScreen(
     val voiceFxSettings by settingsRepository.voiceFxSettings.collectAsState(
         initial = VoiceFxSettings(),
     )
-    val scriptInjector = remember(activity) { VoiceFxPageScriptInjector(activity) }
+    val scriptInjector = remember(activity, browserViewModel) {
+        VoiceFxPageScriptInjector(
+            context = activity,
+            onMicrophoneError = { code ->
+                browserViewModel.showMessage(microphoneErrorMessage(code))
+            },
+        )
+    }
     val voiceFxStats by scriptInjector.stats.collectAsState(initial = null)
     val currentOrigin = remember(state.activeTab.url) {
         runCatching {
@@ -137,6 +149,7 @@ fun BrowserScreen(
                 android.content.pm.PackageManager.PERMISSION_GRANTED,
         )
     }
+    var microphonePermissionDenied by rememberSaveable { mutableStateOf(false) }
     var pendingRuntimePermission by remember { mutableStateOf<Pair<SitePermissionPrompt, Boolean>?>(null) }
     val webViews = remember(activity, browserViewModel) {
         BrowserWebViewPool(
@@ -172,6 +185,13 @@ fun BrowserScreen(
                         android.content.pm.PackageManager.PERMISSION_GRANTED
                 }
             }
+            if (android.Manifest.permission.RECORD_AUDIO in permissions) {
+                microphonePermissionGranted = ContextCompat.checkSelfPermission(
+                    context,
+                    android.Manifest.permission.RECORD_AUDIO,
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                microphonePermissionDenied = !microphonePermissionGranted
+            }
             webViews.resolvePermission(
                 request.first.id,
                 allow = true,
@@ -184,13 +204,14 @@ fun BrowserScreen(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         microphonePermissionGranted = granted
-        browserViewModel.showMessage(
-            if (granted) {
-                "Android microphone permission granted. A website must still request microphone access."
-            } else {
-                "Microphone permission was not granted."
-            },
-        )
+        microphonePermissionDenied = !granted
+        if (granted) {
+            browserViewModel.showMessage(
+                "Microphone enabled for WebView. Reload the page, then allow its microphone request.",
+            )
+        } else {
+            browserViewModel.showMicrophonePermissionError()
+        }
     }
 
     DisposableEffect(webViews) {
@@ -207,6 +228,7 @@ fun BrowserScreen(
                             context,
                             android.Manifest.permission.RECORD_AUDIO,
                         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    if (microphonePermissionGranted) microphonePermissionDenied = false
                 }
                 Lifecycle.Event.ON_PAUSE -> webViews.onPause()
                 else -> Unit
@@ -318,6 +340,35 @@ fun BrowserScreen(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            IconButton(
+                onClick = {
+                    when {
+                        microphonePermissionGranted -> browserViewModel.showMessage(
+                            "App microphone permission is on. The site also needs HTTPS and your approval.",
+                        )
+                        microphonePermissionDenied -> {
+                            val intent = Intent(
+                                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                "package:${activity.packageName}".toUri(),
+                            )
+                            activity.startActivity(intent)
+                        }
+                        else -> microphonePermissionLauncher.launch(
+                            android.Manifest.permission.RECORD_AUDIO,
+                        )
+                    }
+                },
+            ) {
+                Icon(
+                    imageVector = if (microphonePermissionGranted) Icons.Default.Mic else Icons.Default.MicOff,
+                    contentDescription = if (microphonePermissionGranted) {
+                        "Microphone permission enabled"
+                    } else {
+                        "Enable microphone permission"
+                    },
+                    tint = if (microphonePermissionGranted) ActionBlue else TextSecondary,
+                )
+            }
             IconButton(
                 onClick = {
                     if (state.activeTab.progress in 1..99) {
@@ -528,10 +579,29 @@ fun BrowserScreen(
                         .fillMaxWidth(),
                 ) {
                     Text(message, color = TextPrimary)
+                    if (state.messageActionOpenSettings) {
+                        Spacer(Modifier.height(UiSpacing.Small))
+                        ActionButton(
+                            "Mở cài đặt quyền",
+                            primary = false,
+                            onClick = {
+                                activity.startActivity(
+                                    Intent(
+                                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        "package:${activity.packageName}".toUri(),
+                                    ),
+                                )
+                                browserViewModel.consumeMessage()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
-                LaunchedEffect(message) {
-                    delay(3500)
-                    browserViewModel.consumeMessage()
+                LaunchedEffect(message, state.messageActionOpenSettings) {
+                    if (!state.messageActionOpenSettings) {
+                        delay(3500)
+                        browserViewModel.consumeMessage()
+                    }
                 }
             }
         }
@@ -573,6 +643,7 @@ fun BrowserScreen(
         browserViewModel = browserViewModel,
         webViews = webViews,
         context = context,
+        voiceFxAllowedOrigins = voiceFxSettings.allowedOrigins,
         onResolvePermission = { prompt, allow, remember ->
             if (!allow) {
                 webViews.resolvePermission(prompt.id, false, false, false)
@@ -644,7 +715,16 @@ fun BrowserScreen(
                 currentOrigin = currentOrigin,
                 microphonePermissionGranted = microphonePermissionGranted,
                 onRequestMicrophonePermission = {
-                    microphonePermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                    if (microphonePermissionDenied) {
+                        activity.startActivity(
+                            Intent(
+                                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                "package:${activity.packageName}".toUri(),
+                            ),
+                        )
+                    } else {
+                        microphonePermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                    }
                 },
                 onDismiss = { browserViewModel.showMiniStudio(false) },
             )

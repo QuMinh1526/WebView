@@ -283,12 +283,18 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         _state.update { it.copy(pendingPermission = prompt) }
     }
 
-    fun showMessage(message: String) {
-        _state.update { it.copy(message = message) }
+    fun showMessage(message: String, openSettingsAction: Boolean = false) {
+        _state.update {
+            it.copy(message = message, messageActionOpenSettings = openSettingsAction)
+        }
+    }
+
+    fun showMicrophonePermissionError() {
+        showMessage("ERROR: Android denied microphone access.", openSettingsAction = true)
     }
 
     fun consumeMessage() {
-        _state.update { it.copy(message = null) }
+        _state.update { it.copy(message = null, messageActionOpenSettings = false) }
     }
 
     private fun BrowserUiState.updateTab(

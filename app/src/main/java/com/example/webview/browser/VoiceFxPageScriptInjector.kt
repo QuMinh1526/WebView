@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.asStateFlow
 class VoiceFxPageScriptInjector(
     context: Context,
     private val onStats: (String) -> Unit = {},
+    private val onMicrophoneError: (String) -> Unit = {},
 ) : PageScriptInjector {
     private val _stats = MutableStateFlow<VoiceFxStats?>(null)
     val stats = _stats.asStateFlow()
@@ -77,20 +78,29 @@ class VoiceFxPageScriptInjector(
             ) { _, message: WebMessageCompat, sourceOrigin, isMainFrame, _ ->
                 val origin = sourceOrigin.toString()
                 if (isMainFrame && origin in origins) {
-                    if (runCatching {
-                            JSONObject(message.data.orEmpty()).optString("type") == "panic"
-                        }.getOrDefault(false)
-                    ) {
-                        runtimeBypass.add(webView)
-                        webView.evaluateJavascript(
-                            "window.__voicefx&&window.__voicefx.set({enabled:false})",
-                            null,
-                        )
-                    } else {
-                        val payload = message.data.orEmpty()
-                        _stats.value = runCatching { VoiceFxStats.fromJson(payload) }
-                            .getOrNull()
-                        onStats(payload)
+                    val payload = message.data.orEmpty()
+                    val type = runCatching {
+                        JSONObject(payload).optString("type")
+                    }.getOrDefault("")
+                    when (type) {
+                        "panic" -> {
+                            runtimeBypass.add(webView)
+                            webView.evaluateJavascript(
+                                "window.__voicefx&&window.__voicefx.set({enabled:false})",
+                                null,
+                            )
+                        }
+                        "microphoneError" -> {
+                            val code = runCatching {
+                                JSONObject(payload).optString("code")
+                            }.getOrDefault("")
+                            onMicrophoneError(code)
+                        }
+                        else -> {
+                            _stats.value = runCatching { VoiceFxStats.fromJson(payload) }
+                                .getOrNull()
+                            onStats(payload)
+                        }
                     }
                 }
 

@@ -18,6 +18,7 @@ data class BrowserUiState(
     val pendingPermission: SitePermissionPrompt? = null,
     val fileChooserPending: Boolean = false,
     val message: String? = null,
+    val messageActionOpenSettings: Boolean = false,
 ) {
     val activeTab: BrowserTab
         get() = tabs.first { it.id == activeTabId }

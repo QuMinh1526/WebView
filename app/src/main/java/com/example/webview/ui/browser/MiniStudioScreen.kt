@@ -189,7 +189,7 @@ fun MiniStudioScreen(
             )
             if (!microphonePermissionGranted) {
                 ActionButton(
-                    "Grant app microphone permission",
+                    "Enable microphone for WebView",
                     onClick = onRequestMicrophonePermission,
                     primary = false,
                     modifier = Modifier.fillMaxWidth(),

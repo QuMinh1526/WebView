@@ -22,6 +22,26 @@
   const mediaDevices = navigator.mediaDevices;
   if (!mediaDevices || typeof mediaDevices.getUserMedia !== "function") return;
   const originalGetUserMedia = mediaDevices.getUserMedia.bind(mediaDevices);
+  const originalEnumerateDevices =
+    typeof mediaDevices.enumerateDevices === "function"
+      ? mediaDevices.enumerateDevices.bind(mediaDevices)
+      : null;
+  function reportMicrophoneError(error, preferredCode) {
+    const name = error && error.name;
+    const code = preferredCode ||
+      (!window.isSecureContext ? "Insecure" :
+        active?.context?.state === "suspended" ? "AudioContextSuspended" :
+          name === "NotAllowedError" || name === "PermissionDeniedError" ? "NotAllowed" :
+            name === "NotFoundError" || name === "DevicesNotFoundError" ? "NotFound" :
+              name === "NotReadableError" || name === "AbortError" ? "NotReadable" : null);
+    if (code) {
+      try {
+        window.__voiceFxBridge?.postMessage(JSON.stringify({
+          type: "microphoneError", code
+        }));
+      } catch (_) {}
+    }
+  }
   const DEFAULT_PARAMETERS = {
     outputGain: 100, noiseGateDb: 0, highPassHz: 0, lowPassHz: 100,
     eqLowDb: 50, eq300Db: 50, eq1kDb: 50, eq35kDb: 50, eqHighDb: 50,
@@ -459,10 +479,40 @@
     getStats() { return { ...lastStats }; }
   });
   mediaDevices.getUserMedia = async function (constraints) {
-    const stream = await originalGetUserMedia(constraints);
+    let stream;
+    try {
+      stream = await originalGetUserMedia(constraints);
+    } catch (error) {
+      reportMicrophoneError(error);
+      throw error;
+    }
     if (!constraints || !constraints.audio || !state.enabled) return stream;
-    return activate(stream);
+    try {
+      return await activate(stream);
+    } catch (error) {
+      reportMicrophoneError(error);
+      if (active?.stream === stream) cleanup();
+      return stream;
+    }
   };
+  if (originalEnumerateDevices) {
+    mediaDevices.enumerateDevices = async function (...args) {
+      try {
+        return await originalEnumerateDevices(...args);
+      } catch (error) {
+        reportMicrophoneError(error);
+        throw error;
+      }
+    };
+  }
+  const resumeAudioContext = () => {
+    if (active?.context?.state === "suspended") {
+      active.context.resume().catch(error =>
+        reportMicrophoneError(error, "AudioContextSuspended"));
+    }
+  };
+  document.addEventListener("pointerdown", resumeAudioContext, true);
+  document.addEventListener("keydown", resumeAudioContext, true);
   document.addEventListener("visibilitychange", updateHud);
   updateHud();
 })();

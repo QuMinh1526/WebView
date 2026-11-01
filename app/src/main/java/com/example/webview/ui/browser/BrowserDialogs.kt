@@ -20,6 +20,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,13 +28,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import android.webkit.PermissionRequest
+import java.net.URI
 import com.example.webview.BuildConfig
 import com.example.webview.browser.BrowserDiagnostics
 import com.example.webview.browser.BrowserTab
 import com.example.webview.browser.BrowserUiState
 import com.example.webview.browser.BrowserViewModel
 import com.example.webview.browser.BrowserWebViewPool
+import com.example.webview.browser.MicrophoneDiagnosticsProbe
 import com.example.webview.browser.SitePermissionPrompt
+import com.example.webview.data.VoiceFxOrigin
 import com.example.webview.data.BrowserSettings
 import com.example.webview.data.SettingsRepository
 import com.example.webview.ui.components.ActionButton
@@ -52,6 +57,7 @@ fun BrowserDialogs(
     browserViewModel: BrowserViewModel,
     webViews: BrowserWebViewPool,
     context: Context,
+    voiceFxAllowedOrigins: Set<String>,
     onResolvePermission: (SitePermissionPrompt, Boolean, Boolean) -> Unit,
     onClearData: () -> Unit,
     onRevokeOrigin: (String) -> Unit,
@@ -62,6 +68,26 @@ fun BrowserDialogs(
         SettingsRepository(context.applicationContext)
     }
     val siteGrants by settingsRepository.siteGrants.collectAsState(initial = emptyMap())
+    val diagnosticsOrigin = remember(state.activeTab.url) {
+        runCatching {
+            URI(state.activeTab.url).let { uri ->
+                val host = uri.host ?: return@let null
+                VoiceFxOrigin.normalize(
+                    "${uri.scheme}://$host${if (uri.port == -1) "" else ":${uri.port}"}",
+                )
+            }
+        }.getOrNull()
+    }
+    var microphoneProbe by remember(state.activeTabId) {
+        mutableStateOf<MicrophoneDiagnosticsProbe?>(null)
+    }
+    var microphoneTestResult by remember(state.activeTabId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(state.diagnosticsVisible, state.activeTabId, state.activeTab.url) {
+        if (state.diagnosticsVisible && BuildConfig.DEBUG) {
+            microphoneProbe = null
+            webViews.queryMicrophoneDiagnostics(state.activeTabId) { microphoneProbe = it }
+        }
+    }
 
     if (state.menuVisible) {
         BrowserMenuDialog(
@@ -154,6 +180,18 @@ fun BrowserDialogs(
     if (state.diagnosticsVisible && BuildConfig.DEBUG) {
         DiagnosticsDialog(
             diagnostics = webViews.diagnostics(state.activeTabId),
+            origin = diagnosticsOrigin,
+            sitePermissionGranted = diagnosticsOrigin
+                ?.let { siteGrants[it]?.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE) }
+                ?: false,
+            originAllowed = diagnosticsOrigin != null &&
+                diagnosticsOrigin in voiceFxAllowedOrigins,
+            microphoneProbe = microphoneProbe,
+            microphoneTestResult = microphoneTestResult,
+            onTestMicrophone = {
+                microphoneTestResult = "Testing…"
+                webViews.testGetUserMedia(state.activeTabId) { microphoneTestResult = it }
+            },
             onOpenHeaders = {
                 webViews.openUrl(state.activeTabId, "https://httpbin.org/headers")
                 browserViewModel.showDiagnostics(false)
@@ -542,6 +580,11 @@ private fun SitePermissionDialog(
             Spacer(Modifier.height(UiSpacing.Small))
             Text(prompt.origin, color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
             Text(
+                "Microphone access requires HTTPS. Android app permission and this site approval are both required.",
+                color = TextSecondary,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
                 "Requests access to: $resources",
                 color = TextSecondary,
                 style = MaterialTheme.typography.bodyMedium,
@@ -571,6 +614,12 @@ private fun SitePermissionDialog(
 @Composable
 private fun DiagnosticsDialog(
     diagnostics: BrowserDiagnostics,
+    origin: String?,
+    sitePermissionGranted: Boolean,
+    originAllowed: Boolean,
+    microphoneProbe: MicrophoneDiagnosticsProbe?,
+    microphoneTestResult: String?,
+    onTestMicrophone: () -> Unit,
     onOpenHeaders: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -600,6 +649,37 @@ private fun DiagnosticsDialog(
                 "DOM storage: ${if (diagnostics.domStorageEnabled) "enabled" else "disabled"}",
                 color = TextSecondary,
             )
+            Text(
+                "RECORD_AUDIO: ${if (diagnostics.recordAudioPermissionGranted) "granted" else "denied"}",
+                color = TextSecondary,
+            )
+            Text("Origin: ${origin ?: "unavailable"}", color = TextSecondary)
+            Text(
+                "Site microphone permission: ${if (sitePermissionGranted) "granted" else "not granted"}",
+                color = TextSecondary,
+            )
+            Text(
+                "Origin in Voice FX list: ${if (originAllowed) "yes" else "no"}",
+                color = TextSecondary,
+            )
+            Text(
+                "Secure context: ${microphoneProbe?.secureContext?.let { if (it) "yes" else "no" } ?: "checking"}",
+                color = TextSecondary,
+            )
+            Text(
+                "audioinput devices: ${microphoneProbe?.audioInputCount?.toString()
+                    ?: microphoneProbe?.error?.let { "unavailable ($it)" }
+                    ?: "checking"}",
+                color = TextSecondary,
+            )
+            ActionButton(
+                "Thử getUserMedia",
+                onClick = onTestMicrophone,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            microphoneTestResult?.let {
+                Text("getUserMedia: $it", color = TextSecondary)
+            }
             Text(
                 "User agent: ${diagnostics.userAgent}",
                 color = TextSecondary,
